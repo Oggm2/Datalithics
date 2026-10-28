@@ -69,7 +69,7 @@ Each run appends one row to `taco_bueno_kpi_snapshot` with its `trigger_cadence`
 ## Key dataset figures (non-Void base)
 
 * Period: 2025-01-22 to 2026-09-27 (21 full months)
-* 64,862,789 transactions · 13,775,387 orders · 119 stores (115 concurrent max per month)
+* 64,862,789 transactions · 13,775,387 monthly order-months (global distinct: 13,728,036; 47,351 check_numbers reused across months) · 119 stores (115 concurrent max per month)
 * Revenue $1,150.14M · average ticket $17.73
 * Total discounts $24.14M (2.10% of revenue); discount rate fell from 22.27% (Jan 2025) to ~6-7% (2026)
 * 643 products · 12 channels (To Go and Drive Thru account for ~63% of transactions)
@@ -87,14 +87,14 @@ The Gold tables enable insights that were not visible in the raw 85M-row CSVs. B
 
 ### Channel insights
 
-* **Drive Thru** (17.9M transactions, $304.5M revenue) operates at just 4.23% discount rate — the lowest of any major channel — with a **higher** non-discounted ticket ($17.11) than discounted ($12.60). It doesn't need promotions (H1).
+* **Drive Thru** (17.9M transactions, $304.5M revenue) operates at just 4.23% discount rate — the lowest among promoted channels (DoorDash has 0% but is a third-party channel without pricing control) — with a **higher** non-discounted ticket ($17.11) than discounted ($12.60). It doesn't need promotions (H1).
 * **Mobile app** has 50.91% discount rate but only 7,486 transactions and $178K revenue — the digital strategy needs rethinking (H5).
 * **DoorDash** ($55.4M revenue) and **UberEats** ($18.3M) operate at 0% and 0.08% discount respectively — third-party delivery isn't a discount channel, it's a reach channel.
 * To Go and Drive Thru together account for ~63% of all transactions.
 
 ### Temporal and operational patterns
 
-* **Happy hour gap (3–6 PM):** revenue dips relative to lunch and dinner peaks — a targeted promo in this window could flatten the curve (H4).
+* **Happy hour gap (1–3 PM):** revenue dips to $65.9M at 14:00 (the daily minimum) vs $139M at 17:00 (dinner peak) — a targeted promo in the 1–3 PM post-lunch window could flatten the curve (H4).
 * **Weekend traffic** is lower than weekdays (Sunday is the lowest at 216 orders/store/day vs Wednesday's 238). Family bundles or weekend combos could even this out (H6).
 * **Monthly trend:** revenue is stable at ~$55–73M/month across the 21-month period, with December 2025 dip likely seasonal.
 
@@ -110,7 +110,7 @@ The Gold tables enable insights that were not visible in the raw 85M-row CSVs. B
 | H1 | Drive Thru doesn't need discounts | ✅ Confirmed — lowest discount rate, highest non-discounted ticket |
 | H2 | Steak Soft Taco canibalized its price | ✅ Confirmed — 73% discount rate, $429K lost |
 | H3 | Cutting discounts didn't cause traffic drop | ✅ Confirmed — traffic held steady as discounts fell 22% → 6% |
-| H4 | Happy hour opportunity 3–6 PM | ✅ Confirmed — revenue dip in afternoon window |
+| H4 | Happy hour opportunity 1–3 PM (post-lunch valley) | ✅ Confirmed — revenue dips at 14:00 ($65.9M) vs peak at 17:00 ($139M) |
 | H5 | App discounts disproportionate to volume | ✅ Confirmed — 51% discount on 7K transactions |
 | H6 | Weekend promos to even out traffic | ⚠️ Evaluate — weekend traffic is lower but requires A/B test |
 | H7 | Small-order discounts don't pay off | ⚠️ Evaluate — 40% of discounts on <$10 orders, needs A/B |
@@ -201,7 +201,7 @@ Records that fail outlier filters (quantity > 50, menu_price > $50) are written 
 * **Idempotency (safe reruns):** Silver and Gold tables use `CREATE OR REPLACE TABLE` (full refresh), and `taco_bueno_dq_results` uses `DELETE` + `INSERT` scoped by layer — a rerun never duplicates rows, double-counts revenue, or accumulates stale DQ rows.
 * **KPI snapshot is append-only:** Each run inserts exactly one row (never deletes history). If a run fails before the snapshot step, no partial row is written.
 * **Quarantine table:** Records that fail outlier filters (e.g. qty > 50, price > $50) are not silently dropped — they land in `taco_bueno_silver_quarantine` with the same schema for traceability and audit.
-* **Job retry policy:** Jobs are configured to retry on transient failures. Persistent failures (e.g. bad source data, DQ violation) require investigation before rerunning — check `taco_bueno_dq_results` for the specific failing check.
+* **Job retry policy:** Jobs do not currently have a retry policy configured. Transient failures require manual rerun. Persistent failures (e.g. bad source data, DQ violation) require investigation before rerunning — check `taco_bueno_dq_results` for the specific failing check.
 
 ## Permissions (workspace `workspace.default`)
 

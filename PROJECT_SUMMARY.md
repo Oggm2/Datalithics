@@ -146,9 +146,10 @@ El notebook `06_Analisis_Hipotesis` valida 8 hipótesis del equipo de pricing us
 
 **Evidencia:**
 - 17,999,093 transacciones, $304.5M revenue
-- Tasa de descuento: **4.23%** (la más baja de cualquier canal importante)
+- Tasa de descuento: **4.23%** (la más baja entre canales propios con promoción)
 - Ticket sin descuento ($17.11) es **mayor** que con descuento ($12.60)
 - Gap de ticket: +$4.51 (el descuento reduce el ticket, no lo aumenta)
+- Nota: DoorDash tiene 0% de descuento, pero es un canal de terceros sin control de pricing
 
 **Veredicto: ✅ CONFIRMADO** — Drive Thru opera eficientemente sin promociones.
 
@@ -179,20 +180,21 @@ El notebook `06_Analisis_Hipotesis` valida 8 hipótesis del equipo de pricing us
 - No hay correlación visible entre descuento y tráfico
 - Tráfico se mantuvo incluso cuando el descuento se redujo 70%
 
-**Veredicto: ✅ CONFIRMADO** — El recorte de descuentos fue seguro. El tráfico no dependía de las promociones.
+**Veredicto: ✅ CONFIRMADO** — El recorte de descuentos fue seguro. El tráfico no dependía de las promociones. (Nota: correlación temporal, no causalidad — no se controlaron variables externas. Se recomienda A/B test.)
 
 ---
 
-### H4 — Oportunidad de happy hour (3–6 PM)
+### H4 — Oportunidad de happy hour (1–3 PM)
 
-**Estrategia propuesta:** Promociones en la ventana de tarde.
+**Estrategia propuesta:** Promociones en la ventana de tarde post-lunch.
 
 **Evidencia:**
-- Revenue por hora muestra un valle entre 3-6 PM
-- Las horas pico son almuerzo (12-14) y cena (18-20)
-- 3-6 PM genera menos revenue per hour que cualquier otra ventana del día
+- Revenue por hora muestra un valle a las 14:00 ($65.9M) — el punto más bajo del día
+- Las horas pico son almuerzo (12 PM: $109M) y cena (17 PM: $139M)
+- 1-3 PM genera el menor revenue per hour del periodo daylight
+- Nota: la hipótesis original decía 3-6 PM, pero los datos muestran que el revenue SUBE de 3-6 PM (hacia el pico de cena); el valle real es 1-3 PM
 
-**Veredicto: ✅ CONFIRMADO** — Existe una ventana de oportunidad para promociones de tarde que puede aplanar la curva de ventas.
+**Veredicto: ✅ CONFIRMADO** — Existe una ventana de oportunidad para promociones de tarde (1-3 PM) que puede aplanar la curva de ventas.
 
 ---
 
@@ -279,9 +281,9 @@ Con 18M transacciones, $304.5M revenue y solo 4.23% de descuento, Drive Thru es 
 
 50.91% de descuento en 7,486 transacciones ($178K revenue) vs DoorDash con 0% de descuento en 2M transacciones ($55.4M revenue). La app propia necesita repensar su estrategia digital.
 
-### Hallazgo #7: Happy hour 3-6 PM es una oportunidad
+### Hallazgo #7: Happy hour 1-3 PM es una oportunidad
 
-Existe un valle consistente en revenue entre 3-6 PM. Una promoción dirigida a esta ventana podría aplanar la curva de ventas diarias.
+Existe un valle consistente en revenue a las 14:00 ($65.9M, el mínimo del día) vs el pico de cena a las 17:00 ($139M). Una promoción dirigida a la ventana 1-3 PM podría aplanar la curva de ventas diarias.
 
 ### Hallazgo #8: Los fines de semana tienen menos tráfico
 
@@ -295,7 +297,7 @@ Domingo es el día más bajo (216 órdenes/tienda/día vs 238 del miércoles). B
 |---|---|
 | Período | 2025-01-22 a 2026-09-27 (21 meses) |
 | Transacciones (no-Void) | 64,862,789 |
-| Órdenes | 13,775,387 |
+| Órdenes | 13,775,387 (suma mensual; distinct global: 13,728,036) |
 | Tiendas | 119 (115 concurrentes máx por mes) |
 | Revenue total | $1,150.14M |
 | Ticket promedio | $17.73 |
