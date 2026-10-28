@@ -120,20 +120,24 @@ dups_validos = raw_validos - n_silver
 print("=== Reconciliación Raw → Silver ===")
 print(f"Raw total:                          {raw_total:,}")
 print(f"  ├─ Pasan filtros (con dups):      {raw_validos:,}")
-print(f"  │    ├─ Únicos → Silver:          {n_silver:,}  (esperado 65,082,100 = clean original)")
+print(f"  │    ├─ Únicos → Silver:          {n_silver:,}  (referencia histórica Fase 2: 65,082,100)")
 print(f"  │    └─ Duplicados eliminados:     {dups_validos:,}")
 print(f"  └─ Fallan filtros (con dups):     {raw_outliers:,}")
 print(f"       └─ Únicos → Cuarentena:      {n_quar:,}  (dups dentro de outliers: {raw_outliers - n_quar:,})")
 
 assert raw_validos + raw_outliers == raw_total, f"ERROR: válidos+outliers ({raw_validos + raw_outliers:,}) != raw total"
 assert n_silver + dups_validos + raw_outliers == raw_total, "ERROR: la suma no cuadra"
-assert n_silver == 65082100, f"ERROR: Silver = {n_silver:,}, esperado 65,082,100 (misma lógica que clean)"
+# Referencia histórica (Fase 2: 65,082,100) — detector de drift, NO regla permanente:
+# si el volumen cambia, investigar la fuente en vez de bloquear el pipeline.
+HIST_SILVER_ROWS = 65082100
+if n_silver != HIST_SILVER_ROWS:
+    print(f"⚠️ WARN: Silver = {n_silver:,} ≠ referencia histórica {HIST_SILVER_ROWS:,} — verificar si la fuente agregó CSVs nuevos (NO es un error del pipeline).")
 print("✅ Reconciliación exacta: raw_total = únicos Silver + duplicados válidos + outliers con duplicados")
 
 # COMMAND ----------
 
 # DBTITLE 1,Data Quality Checks — Silver
-from datetime import datetime
+from datetime import datetime, timezone
 
 # ---------- Data Quality Checks: Silver ----------
 # Cada check define: regla, resultado observado, acción (FAIL = detiene el pipeline,
@@ -158,10 +162,14 @@ FROM workspace.default.taco_bueno_silver
 n_distinct = spark.sql("SELECT COUNT(*) AS n FROM (SELECT DISTINCT * FROM workspace.default.taco_bueno_silver) t").collect()[0]['n']
 remaining_dups = s['total'] - n_distinct
 
-now = datetime.utcnow()
+now = datetime.now(timezone.utc)
 def mk(name, rule, observed, expected, ok, action, warn_only=False):
     status = "PASS" if ok else ("WARN" if warn_only else "FAIL")
     return (now, "silver", name, rule, str(observed), expected, status, action)
+
+# (Corrección: antes este assignment estaba DENTRO de la lista — SyntaxError que rompió
+# la corrida del Job Semanal del 28-oct; ahora va antes de la lista.)
+today_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
 
 checks = [
     mk("volumen_silver", "Filas >= 60,000,000 (rango dinámico, no conteo fijo)",
@@ -180,7 +188,6 @@ checks = [
        s['bad_price'] == 0, "FAIL del pipeline: outliers de precio atravesaron el filtro"),
     mk("dominio_trans_type", "transaction_type ∈ {Regular Sale, Discount, Void}", s['bad_trans_type'], "0",
        s['bad_trans_type'] == 0, "FAIL del pipeline: categoría desconocida requiere revisión"),
-    today_str = datetime.utcnow().strftime('%Y-%m-%d')
     mk("rango_fechas", "Rango de fechas dinamico (min >= 2025-01-01, max <= hoy)", f"{s['min_date']} a {s['max_date']}",
        f"min >= 2025-01-01, max <= {today_str}",
        str(s['min_date']) >= "2025-01-01" and str(s['max_date']) <= today_str,

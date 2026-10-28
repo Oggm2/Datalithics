@@ -1,28 +1,31 @@
 # Auditoría del Pipeline Taco Bueno Pricing — Fase 2
 ## Reporte de Auditoría Técnica
 
-**Fecha de auditoría:** 28 de octubre, 2026  
+**Fecha de auditoría:** 28 de octubre, 2026 — actualizada con la 2ª pasada (semántica de métricas a nivel check/ítem)  
 **Auditor:** Senior Databricks Data Engineer (asistido por IA)  
-**Alcance:** 6 notebooks, 11 tablas, 3 Jobs, 27 DQ checks, 8 hipótesis
+**Alcance:** 6 notebooks, 11 tablas, 3 Jobs, 27 DQ checks, 8 hipótesis  
+**Nota:** los montos absolutos de revenue/descuento de las tablas Gold usan la convención por línea (inflada ×6.0/×5.2). Los valores reales a nivel check se indican en cada sección; ver PROJECT_SUMMARY §8
 
 ---
 
 ## 1. Resumen Ejecutivo
 
-El pipeline Taco Bueno Pricing está **funcionalmente correcto y listo para presentación**, con excepción de un hallazgo de alto impacto en el análisis de hipótesis (H4) y varios issues de robustez para producción.
+El pipeline Taco Bueno Pricing está **funcionalmente correcto y listo para presentación**, con dos hallazgos de alto impacto: (1) los montos absolutos de revenue/descuento en las tablas Gold están inflados por semántica de columnas (hallazgo central de la 2ª pasada) y (2) la hipótesis H4 en su formulación original no está respaldada. Además hay varios issues de robustez para producción.
 
 **Hallazgos clave:**
 - ✅ **Reconciliación de datos exacta:** 85,273,331 raw = 65,082,100 Silver + 20,188,867 duplicados + 1,586 cuarentena + 778 dups en outliers. Cuadra perfectamente.
-- ✅ **Revenue y transacciones reconcilian exactamente** entre Silver y todas las tablas Gold (excepto gold_product que excluye NULL menu_item, documentado).
+- ✅ **Revenue y transacciones reconcilian exactamente** entre Silver y todas las tablas Gold (excepto gold_product que excluye NULL menu_item, documentado) — bajo la misma convención por línea.
+- ❌ **Semántica de montos (hallazgo central de la 2ª pasada):** en Silver, `total`, `total_discount`, `tax` y `order_voided` son montos a nivel CHECK repetidos en cada línea; `menu_price`, `quantity` e `item_discount` son a nivel ítem. SUM(total) sobre líneas infla el revenue ×6.0 y el descuento ×5.2. Valores reales (nivel check): revenue bruto **$191.66M**, descuento **$4.61M** (2.41%), ticket **$13.91**. Las tablas Gold siguen la convención inflada; participaciones (%) y conteos siguen siendo válidos. (Ver Sección 6 y PROJECT_SUMMARY §8.)
 - ✅ **27/27 DQ checks pasan** — verificado con resultados reales de ejecución.
 - ✅ **Liquid clustering** confirmado: CLUSTER BY (date) activo en Silver.
-- ✅ **3 Jobs existen y están activos** con schedules correctos.
-- ❌ **H4 (Happy hour 3-6 PM) no está respaldada por los datos:** el revenue realmente sube de 3 PM a 6 PM; el valle es de 1-3 PM.
+- ⚠️ **3 Jobs existen y están activos** con schedules correctos, pero son redundantes entre sí.
+- ❌ **H4 (Happy hour 3-6 PM) no está respaldada por los datos:** el revenue realmente sube de 3 PM a 6 PM; el valle es de 1-3 PM. (Ya corregida en docs: reformulada a 1-3 PM y confirmada.)
 - ⚠️ **DQ checks con conteos fijos** (65,082,100; 119 tiendas; fechas hardcodeadas) fallarán cuando lleguen datos nuevos.
 - ⚠️ **No hay política de reintentos** en los Jobs, aunque el README lo afirma.
-- ⚠️ **Conteo de órdenes inflado en 47,351** (check_numbers reutilizados entre meses).
+- ❌ **Corrida semanal fallida sin alerta:** run 443911298462218 (2026-10-28, 01:29–01:36 UTC) terminó en RUN_EXECUTION_ERROR antes de la capa Gold, sin notificaciones configuradas; se observaron además ejecuciones solapadas sobre Silver (ver Sección 7).
+- ⚠️ **Clave de órdenes incompleta:** store+check subestima 52,189 órdenes (check_number se reutiliza entre fechas). Órdenes reales (store+date+check): **13,780,225**.
 
-**Veredicto:** El pipeline es presentable con las correcciones documentadas en la Sección 10. No se requieren reconstrucciones.
+**Veredicto:** El pipeline es presentable con las correcciones documentadas en la Sección 10. Las cifras absolutas de revenue/descuento de las tablas Gold requieren corrección a nivel check/ítem (Roadmap de PROJECT_SUMMARY §10), pero no implican reconstrucciones de arquitectura. Las cifras reales están documentadas en PROJECT_SUMMARY §8.
 
 ---
 
@@ -95,12 +98,15 @@ Reconstruido: 65,082,100 + 20,188,867 + 1,586 + 778 = 85,273,331 ✅ EXACTO
 | Transactions | 64,862,789 | 64,862,789 | 0 | ✅ |
 | Revenue | $1,150,140,925.30 | $1,150,140,925.30 | $0.00 | ✅ |
 | Discount amount | $24,140,633.67 | $24,140,633.67 | $0.00 | ✅ |
-| Orders (global distinct) | 13,728,036 | 13,775,387 (sum monthly) | 47,351 | ⚠️ |
+| Orders (global distinct, store+check) | 13,728,036 | 13,775,387 (sum monthly) | 47,351 | ⚠️ |
+| Orders reales (store+date+check) | 13,780,225 | 13,780,225 | 0 | ✅ |
+
+> **Nota de la 2ª pasada (2026-10-28):** la reconciliación Silver↔Gold es exacta, pero bajo la **convención por línea**: los montos de revenue ($1,150.14M) y descuento ($24.14M) repiten el monto del check en cada línea. Valores reales a nivel check: revenue bruto **$191.66M**, descuento **$4.61M** (2.41%), neto tras descuentos ~$187.05M, ticket real $13.91. La clave correcta de órdenes es store+**date**+check.
 
 ### Issues de reconciliación
 
-**Issue #1 — Conteo de órdenes inflado (Severidad: Media)**  
-Gold SUM(orders) mensual = 13,775,387, pero el conteo global de COUNT(DISTINCT store_id || '-' || check_number) = 13,728,036. La diferencia de 47,351 se debe a 47,348 check_numbers reutilizados entre meses diferentes. No es un bug — es inherente a sumar conteos distinct por partición temporal. Pero el README reporta 13,775,387 como "total orders" sin esta salvedad.
+**Issue #1 — Clave de órdenes incompleta (Severidad: Media; corregido en documentación)**  
+Ambos conteos previos usaban store+check y subestiman: `check_number` se reutiliza entre fechas dentro de una misma tienda. El conteo real con clave store+**date**+check es **13,780,225** órdenes. La suma mensual de Gold (13,775,387) y el distinct global (13,728,036) quedan ~52,189 por debajo. PROJECT_SUMMARY §8 ya documenta la cifra correcta; falta replicar la clave con `date` en las tablas Gold (Roadmap).
 
 **Issue #2 — gold_product excluye 2,943,059 filas con menu_item NULL (Severidad: Baja)**  
 Gold product tiene 61,919,730 transacciones vs 64,862,789 en Silver non-Void. La diferencia está documentada en el DQ check gold_product_cobertura (PASS, status WARN). El revenue de gold_product ($1,094M) es $56.3M menor al total.
@@ -149,7 +155,7 @@ Una fila en gold_promo_effectiveness tiene discount_amount = -$11.92 en el segme
 | 26 | gold_promo_revenue | SUM(rev) ≈ Silver | $1,150,140,925.30 | $1,150,140,925.30 | PASS |
 | 27 | gold_promo_trans | SUM(tx) == Silver | 64,862,789 | 64,862,789 | PASS |
 
-**Todos los 27 checks pasan ✅**
+**Todos los 27 checks pasan ✅** (bajo la convención por línea: los checks de reconciliación comparan montos calculados con la misma convención en ambos lados, por lo que el PASS es internamente válido)
 
 ### Issues de DQ
 
@@ -168,14 +174,14 @@ El notebook 05 hace CREATE OR REPLACE TABLE en Gold (celda 04) ANTES de verifica
 
 | Métrica | Definición (del código) | Consistente | Observaciones |
 |---|---|---|---|
-| revenue | SUM(total) non-Void | ✅ Exacto | total puede ser negativo (54 filas) |
-| transactions | COUNT(*) non-Void | ✅ Exacto | Líneas POS, no órdenes |
-| orders | COUNT(DISTINCT store_id \|\| '-' \|\| check_number) | ⚠️ Sum mensual inflada | 47,351 overcount |
-| discount_amount | SUM(total_discount) non-Void | ✅ Exacto | |
-| discount_rate_pct | % con total_discount > 0 | ✅ | |
-| avg_order_value | revenue / orders | ✅ | Usa order count inflado |
-| avg_ticket_discounted | AVG(total) WHERE total_discount > 0 | ✅ | |
-| orders_per_store_day | orders / store_days | ✅ | |
+| revenue | SUM(total) non-Void | ⚠️ Inflado ×6.0 | `total` es monto de check repetido por línea (puede ser negativo, 54 filas); real a nivel check: **$191.66M** brutos |
+| transactions | COUNT(*) non-Void | ✅ | Líneas POS, no órdenes |
+| orders | COUNT(DISTINCT store_id \|\| '-' \|\| check_number) | ⚠️ Clave incompleta | Subestima ~52,189 (check_number se reutiliza entre fechas); clave correcta: store+date+check = **13,780,225** |
+| discount_amount | SUM(total_discount) non-Void | ⚠️ Inflado ×5.2 | Real a nivel check: **$4.61M** (2.41%); a nivel ítem (SUM(item_discount)): $2.88M |
+| discount_rate_pct | % con total_discount > 0 | ✅ | Válida como % de líneas en checks descontados; a nivel orden: 8.79% |
+| avg_order_value | revenue / orders | ⚠️ Inflado (~$83) | Real por orden ≈ **$13.91** |
+| avg_ticket_discounted | AVG(total) WHERE total_discount > 0 | ✅ | Monto bruto promedio por check |
+| orders_per_store_day | orders / store_days | ✅ | Correcto (sáb 174.5 … jue 237.8) |
 
 ---
 
@@ -191,7 +197,7 @@ El notebook 05 hace CREATE OR REPLACE TABLE en Gold (celda 04) ANTES de verifica
 
 Todos los Jobs: 1 tarea (notebook 05_Pipeline_Job), queue enabled, sin timeout, sin email/webhook, sin retry policy.
 
-Runs recientes: todos SUCCESS.
+Runs recientes: NO todos exitosos. La corrida periódica del Job Semanal (run 443911298462218) falló el 2026-10-28 (01:29–01:36 UTC, RUN_EXECUTION_ERROR) antes de llegar a la capa Gold — sin CTAS de Gold ni fila en el KPI snapshot en ese periodo. La última corrida completa exitosa fue 00:18–00:23 UTC. Sin notificaciones configuradas, el fallo pasó desapercibido. Además, se observaron ejecuciones solapadas del pipeline sobre las mismas tablas (dos CTAS de Silver en la misma ventana a las 00:19/00:21, y de nuevo a las 01:32/01:34 durante la corrida fallida): `max_concurrent_runs=1` solo aplica por Job, y nada impide que dos Jobs — o un Job y una corrida interactiva — escriban la misma tabla a la vez.
 
 ### Issues de orquestación
 
@@ -229,45 +235,45 @@ timeout_seconds: 0 significa sin límite. Recomendación: 3600 segundos.
 ## 9. Limitaciones del Análisis de Negocio
 
 ### H1 — Drive Thru no necesita descuentos
-**Veredicto: ✅ Confirmado, con matiz**  
-4.23% discount rate, 17.99M transacciones, $304.5M revenue verificados. Pero DoorDash tiene 0% — el claim "lowest of any major channel" debería ser "lowest among promoted channels".
+**Veredicto: ✅ Confirmado, con matiz (cifras corregidas en 2ª pasada)**  
+4.23% de líneas en checks con descuento y **$0 de item_discount** en todo el canal, 17.99M líneas / 4.18M órdenes. Ventas brutas a nivel ítem: **$40.3M** (el $304.5M era la convención por línea, inflado ×6). Check bruto sin descuento $17.11 vs con descuento $12.60 — comparación descriptiva. Pero DoorDash tiene 0% — el claim "lowest of any major channel" debería ser "lowest among promoted channels".
 
 ### H2 — Steak Soft Taco canibalizó su precio
-**Veredicto: ✅ Confirmado exactamente**  
-73.29% discount rate, $429,621.92 verificados contra gold_product.
+**Veredicto: ✅ Confirmado (magnitud corregida en 2ª pasada)**  
+45.83% de sus líneas llevan item_discount (la más alta de cualquier producto de alto volumen; #2: Chicken Soft Taco 27.2%); 73.29% de líneas en checks descontados. Ventas brutas a nivel ítem: **$562,749** (el "$2.12M" repetía el total del check en cada línea). Descuento a nivel ítem: **$233,143** (41% de ventas brutas); techo de $429,622 solo si se atribuyera todo el descuento del check a este producto. Descuento por unidad: $1.54 a nivel ítem.
 
 ### H3 — Recortar descuentos no causó caída de tráfico
-**Veredicto: ✅ Confirmado, con caveats**  
-Descuento cayó 22.27% → 6-7%, tráfico se mantuvo. Caveat 1: enero 2025 tiene solo 10 días (partial month). Caveat 2: esto es correlación temporal, no causalidad — no se controlaron variables externas.
+**Veredicto: ✅ Confirmado, con caveats (unidad corregida en 2ª pasada)**  
+Descuento cayó 22.27% → 6-7%, tráfico se mantuvo. Corrección de unidad: el notebook calcula órdenes/tienda por **mes** (4,788–6,679); equivalente diario: **154–223 órdenes/tienda/día**. Correlación mensual descuento vs tráfico: +0.11 (débil); el tráfico cayó en dic-25/ene-26, cuando el descuento ya era bajo, y se recuperó en 2026. Caveat 1: enero 2025 tiene solo 10 días (partial month). Caveat 2: esto es correlación temporal, no causalidad — no se controlaron variables externas.
 
 ### H4 — Oportunidad de happy hour 3-6 PM
-**Veredicto: ❌ NO RESPALDADA por los datos**  
-Datos reales (gold_hourly):
+**Veredicto: ❌ NO RESPALDADA en su formulación original; reformulada a 1-3 PM y confirmada**  
+Datos reales (gold_hourly; montos absolutos con convención por línea — inflados ×6, participaciones % válidas):
 - 12:00 — $109.1M (pico lunch)
 - 13:00 — $77.8M (bajando)
-- 14:00 — $65.9M (VALLE REAL)
+- 14:00 — $65.9M (VALLE REAL — 5.73% del revenue del día)
 - 15:00 — $77.3M (recuperando)
 - 16:00 — $117.2M (subiendo)
-- 17:00 — $139.0M (PICO CENA)
+- 17:00 — $139.0M (PICO CENA — 12.1%)
 - 18:00 — $121.1M
 
-El revenue SUBE de 3 PM a 6 PM. El valle real es 1-3 PM (14:00 es el mínimo). La hipótesis debería corregirse a "happy hour 1-3 PM".
+El revenue SUBE de 3 PM a 6 PM. El valle real es 1-3 PM (14:00 es el mínimo). Corrección ya aplicada a README y PROJECT_SUMMARY: "happy hour 1-3 PM" ✅ confirmada como oportunidad; falta la celda del notebook.
 
 ### H5 — App móvil con descuento desproporcionado
-**Veredicto: ✅ Confirmado exactamente**  
-7,486 transacciones, 50.91% discount, $178K vs DoorDash 2M transacciones, 0%, $55.4M.
+**Veredicto: ✅ Confirmado (cifras corregidas en 2ª pasada)**  
+Mobile: 7,486 líneas / **1,197 órdenes**, 50.91% de líneas en checks descontados, $0 de item_discount, ventas brutas a nivel ítem ≈ **$17,600** (el "$178K" era la convención por línea) vs DoorDash 2.0M líneas / 310,917 órdenes, 0%.
 
 ### H6 — Promos de fin de semana
-**Veredicto: ⚠️ Evaluar (apropiadamente cauteloso)**  
-Domingo 216 vs miércoles 238 órdenes/tienda/día. Veredicto de A/B test correcto.
+**Veredicto: ⚠️ Evaluar (apropiadamente cauteloso; día más bajo corregido en 2ª pasada)**  
+Corrección: el día más bajo es el **SÁBADO** (174.5 órdenes/tienda/día; viernes 185.9 segundo más bajo; domingo 216.3), no el domingo. Jueves (237.8) y miércoles (237.5) son los más altos; fin de semana −12.7% vs laborales. Veredicto de A/B test correcto.
 
 ### H7 — Descuentos en órdenes pequeñas
 **Veredicto: ⚠️ Evaluar (apropiadamente cauteloso)**  
-5.47M órdenes <$10 (39.8%), 564K con descuento. Caveat de A/B correcto.
+5.47M órdenes <$10 (39.8%), 564K con descuento, $1.86M (40.3% del descuento total a nivel orden — metodología correcta: usa el monto del check una sola vez). Caveat de A/B correcto.
 
 ### H8 — Sides y condimentos son giveaways
-**Veredicto: ⚠️ Evaluar (apropiadamente cauteloso)**  
-$5.26M en descuentos verificado. Caveat de canasta incremental correcto.
+**Veredicto: ⚠️ REVISAR (corregido en 2ª pasada — la premisa no se sostiene a nivel ítem)**  
+Los $5.26M sumaban el descuento del CHECK repetido en cada línea de estos grupos — atribución errónea (el descuento pertenecía a otros ítems del check). Descuentos reales a nivel ítem (SUM(item_discount)): Condiments $38,323, Sides $30,499, Other $11,062, resto ≈$278 → total ≈ **$80,162**. La pregunta correcta es si los promos a nivel check (combos) dependen de estos acompañamientos; requiere medición de canasta incremental.
 
 **Issue #14 — H3 implica causalidad sin A/B (Severidad: Media)**  
 "No causó caída" es una inferencia causal. Debería ser: "no se observó caída asociada temporalmente con el recorte."
@@ -276,30 +282,31 @@ $5.26M en descuentos verificado. Caveat de canasta incremental correcto.
 
 ## 10. Issues Priorizados
 
-| # | Severidad | Issue | Componente | Acción |
+| # | Severidad | Issue | Componente | Estado / Acción |
 |---|---|---|---|---|
-| 1 | ALTA | H4: happy hour 3-6 PM no respaldada | 06_Analisis_Hipotesis, README | Corregir a 1-3 PM |
-| 2 | ALTA | DQ checks con conteos/fechas fijas | 03/04 notebooks | Cambiar a rangos dinámicos |
-| 3 | ALTA | No hay política de reintentos | 3 Jobs, README | Agregar max_retries o corregir README |
-| 4 | MEDIA | Gold se publica antes de DQ | 05_Pipeline_Job | Pre-check antes de CTAS |
-| 5 | MEDIA | 3 Jobs redundantes | 3 Jobs | Pausar 2 de 3 |
-| 6 | MEDIA | Sin notificaciones de fallo | 3 Jobs | Configurar email on_failure |
-| 7 | MEDIA | Conteo de órdenes inflado 47,351 | README, SUMMARY | Aclarar que es suma mensual |
-| 8 | MEDIA | H3 implica causalidad sin A/B | 06_Analisis_Hipotesis | Agregar caveat |
-| 9 | BAJA | H1: "lowest discount rate" inexacto | 06_Analisis_Hipotesis | "lowest among promoted" |
-| 10 | BAJA | H3: enero 2025 partial month | 06_Analisis_Hipotesis | Excluir o documentar |
-| 11 | BAJA | Valor -$11.92 en promo_effectiveness | 04_Pipeline_Gold | Investigar origen |
-| 12 | BAJA | KPI snapshot con cadencias NULL | kpi_snapshot | Backfill o dejar histórico |
-| 13 | BAJA | Sin timeout en Jobs | 3 Jobs | Agregar 3600s |
-| 14 | BAJA | Tolerancia DQ fija $5 | 03/04 notebooks | Cambiar a porcentual |
+| 1 | ALTA | Montos Gold inflados: `total`/`total_discount` son montos de check repetidos por línea (revenue ×6.0, descuento ×5.2) | 04_Pipeline_Gold, tablas Gold | Abierto — corregir a nivel check/ítem (Roadmap); cifras reales: $191.66M / $4.61M / ticket $13.91 |
+| 2 | ALTA | H4: happy hour 3-6 PM no respaldada | 06_Analisis_Hipotesis, README | ✅ Corregido en docs (1-3 PM); pendiente celda del notebook |
+| 3 | ALTA | DQ checks con conteos/fechas fijas | 03/04 notebooks | Abierto — cambiar a rangos dinámicos |
+| 4 | ALTA | No hay política de reintentos | 3 Jobs, README | Abierto — agregar max_retries o corregir README |
+| 5 | MEDIA | Gold se publica antes de DQ | 05_Pipeline_Job | Abierto — pre-check antes de CTAS |
+| 6 | MEDIA | 3 Jobs redundantes + corrida semanal fallida (443911298462218) con ejecuciones solapadas | 3 Jobs | Abierto — pausar 2 de 3; investigar run fallido |
+| 7 | MEDIA | Sin notificaciones de fallo | 3 Jobs | Abierto — configurar email on_failure |
+| 8 | MEDIA | Clave de órdenes incompleta (store+check subestima 52,189; real: 13,780,225 con store+date+check) | README, SUMMARY, Gold | ✅ Documentado en PROJECT_SUMMARY §8; pendiente replicar clave en Gold y actualizar README |
+| 9 | MEDIA | H3: causalidad sin A/B + unidad órdenes/tienda mal etiquetada (mes vs día) | 06_Analisis_Hipotesis | Documentado en PROJECT_SUMMARY; pendiente caveat en celda |
+| 10 | BAJA | H1: "lowest discount rate" inexacto + revenue por línea ($304.5M → $40.3M ítem) | 06_Analisis_Hipotesis | Documentado en PROJECT_SUMMARY; pendiente celda |
+| 11 | BAJA | H3: enero 2025 partial month | 06_Analisis_Hipotesis | Abierto — excluir o documentar |
+| 12 | BAJA | Valor -$11.92 en promo_effectiveness | 04_Pipeline_Gold | Abierto — investigar origen |
+| 13 | BAJA | KPI snapshot con cadencias NULL | kpi_snapshot | Abierto — backfill o dejar histórico |
+| 14 | BAJA | Sin timeout en Jobs | 3 Jobs | Abierto — agregar 3600s |
+| 15 | BAJA | Tolerancia DQ fija $5 | 03/04 notebooks | Abierto — cambiar a porcentual |
 
 ---
 
 ## 11. Fixes Recomendados
 
-### Fix 1 (ALTA): Corregir H4 — happy hour
+### Fix 1 (ALTA): Corregir H4 — happy hour — ✅ aplicado en docs; pendiente celda del notebook
 Archivo: 06_Analisis_Hipotesis.ipynb, celda H4
-Cambiar el análisis de 3-6 PM a 1-3 PM. Actualizar README y PROJECT_SUMMARY.
+Cambiar el análisis de 3-6 PM a 1-3 PM. ✅ README y PROJECT_SUMMARY ya usan 1-3 PM.
 
 ### Fix 2 (ALTA): DQ checks con conteos dinámicos
 Archivo: 03_Pipeline_Silver.py, celda DQ
@@ -321,13 +328,21 @@ Agregar sanity check de Silver antes de cada CREATE OR REPLACE TABLE Gold.
 Componente: Los 3 Jobs
 Agregar email_notifications.on_failure con email del equipo.
 
-### Fix 7 (MEDIA): Aclarar conteo de órdenes
-Archivo: README.md, PROJECT_SUMMARY.md
-Cambiar "13,775,387 orders" a "13,775,387 monthly order-months (global distinct: 13,728,036)".
+### Fix 6 (MEDIA): Clave de órdenes con fecha (agregado en 2ª pasada)  
+Componente: 04_Pipeline_Gold, tablas Gold  
+Agregar `date` a la clave de órdenes (store+date+check): 13,780,225 órdenes reales vs 13,728,036 con store+check.
+
+### Fix 7 (MEDIA): Aclarar conteo de órdenes — ✅ documentado  
+Archivo: README.md, PROJECT_SUMMARY.md  
+✅ PROJECT_SUMMARY §8 documenta órdenes reales 13,780,225 (store+date+check); 13,775,387 (suma mensual) y 13,728,036 (distinct global) subestiman ~52,189. Falta actualizar el README con la cifra final.
 
 ### Fix 8 (MEDIA): Caveat de causalidad en H3
 Archivo: 06_Analisis_Hipotesis.ipynb, celda H3
 Agregar: "Esta observación es temporal, no causal. Recomendamos A/B test."
+
+### Fix 9 (ALTA, 2ª pasada): Corregir montos de las tablas Gold a nivel check/ítem  
+Archivo: 04_Pipeline_Gold, tablas Gold  
+`total`/`total_discount` son montos de check repetidos por línea: revenue bruto real **$191.66M** (no $1,150.14M), descuento real **$4.61M** / 2.41% (no $24.14M), ticket real **$13.91** (no $17.73). Agregar métricas a nivel check (una fila por check) y a nivel ítem (SUM(item_discount)) junto a las actuales por línea; las participaciones porcentuales actuales siguen siendo válidas. Detalle: PROJECT_SUMMARY §8.
 
 ---
 

@@ -69,9 +69,9 @@ Each run appends one row to `taco_bueno_kpi_snapshot` with its `trigger_cadence`
 ## Key dataset figures (non-Void base)
 
 * Period: 2025-01-22 to 2026-09-27 (21 full months)
-* 64,862,789 transactions · 13,775,387 monthly order-months (global distinct: 13,728,036; 47,351 check_numbers reused across months) · 119 stores (115 concurrent max per month)
-* Revenue $1,150.14M · average ticket $17.73
-* Total discounts $24.14M (2.10% of revenue); discount rate fell from 22.27% (Jan 2025) to ~6-7% (2026)
+* 64,862,789 transaction lines · 13,780,225 real orders (store+date+check; store+check keys undercount by ~52K because `check_number` is reused across dates) · 119 stores (115 concurrent max per month)
+* Gross revenue at check level **$191.66M** · real average ticket **$13.91**. The Gold tables use the per-line convention — `total` is the check amount repeated on every line — which inflates revenue ×6.0 ($1,150.14M) and discounts ×5.2; shares and rates remain valid
+* Check-level discounts **$4.61M** (2.41% of gross); item-level discounts (`SUM(item_discount)`) $2.88M; discount rate fell from 22.27% (Jan 2025) to ~6-7% (2026)
 * 643 products · 12 channels (To Go and Drive Thru account for ~63% of transactions)
 
 ## Key findings and business value
@@ -80,23 +80,23 @@ The Gold tables enable insights that were not visible in the raw 85M-row CSVs. B
 
 ### Discount strategy effectiveness
 
-* **Discount rate collapsed** from 22.27% (Jan 2025) to ~6–7% (2026), yet **traffic held steady** at ~6,200–6,700 orders per store per day (H3). Cutting discounts did NOT cause a traffic drop — the rec was unnecessary.
-* **Steak Soft Taco** had a 73.29% discount rate — the highest of any high-volume product — with $429,622 in discounts against $2.12M revenue (H2). This product was effectively canibalizing its own price.
+* **Discount rate collapsed** from 22.27% (Jan 2025) to ~6–7% (2026), yet **traffic held steady** at 154–223 orders per store per day (4,788–6,679 per store per month; monthly correlation +0.11) (H3). Cutting discounts did NOT cause a traffic drop — the rec was unnecessary (temporal correlation, not causation; A/B test recommended).
+* **Steak Soft Taco** — 45.83% of its lines carry an item-level discount (the highest of any high-volume product; #2 reaches 27.2%; 73.29% of lines sit in discounted checks) — with $233,143 in item-level discounts against $562,749 gross item sales, up to $429,622 if full check discounts were attributed to it (H2). This product was effectively canibalizing its own price.
 * **Small orders (<$10)** account for 39.8% of all orders but absorb 40.3% of total discount dollars ($1.86M), with an average ticket of just $6.45 (H7). Discounts on tiny orders don't generate incremental basket value.
-* **Sides and condiments** received $5.26M in discounts across 12.5M+ transactions (H8) — these are likely pure giveaways unless they drive combo attach rate.
+* **Sides and condiments** received only ≈**$80K** in real item-level discounts (Condiments $38K, Sides $30K, other ~$11K) (H8) — the previously reported $5.26M was check-level discounts wrongly attributed to every line of these groups; the right question is whether check-level promos (combos) depend on them, requiring incremental basket analysis.
 
 ### Channel insights
 
-* **Drive Thru** (17.9M transactions, $304.5M revenue) operates at just 4.23% discount rate — the lowest among promoted channels (DoorDash has 0% but is a third-party channel without pricing control) — with a **higher** non-discounted ticket ($17.11) than discounted ($12.60). It doesn't need promotions (H1).
-* **Mobile app** has 50.91% discount rate but only 7,486 transactions and $178K revenue — the digital strategy needs rethinking (H5).
-* **DoorDash** ($55.4M revenue) and **UberEats** ($18.3M) operate at 0% and 0.08% discount respectively — third-party delivery isn't a discount channel, it's a reach channel.
+* **Drive Thru** (17.99M lines, 4.18M orders, $40.3M gross item sales) operates at just 4.23% of lines in discounted checks with **$0 item-level discounts** — the lowest among promoted channels (DoorDash has 0% but is a third-party channel without pricing control) — with a **higher** non-discounted check ($17.11) than discounted ($12.60; descriptive comparison). It doesn't need promotions (H1).
+* **Mobile app** has a 50.91% discount rate (check-level promos; $0 item-level discounts) on only 7,486 lines / 1,197 orders and ≈$17.6K gross item sales — the digital strategy needs rethinking (H5).
+* **DoorDash** ($55.4M per-line revenue, 310,917 orders) and **UberEats** ($18.3M per-line) operate at 0% and 0.08% discount respectively — third-party delivery isn't a discount channel, it's a reach channel.
 * To Go and Drive Thru together account for ~63% of all transactions.
 
 ### Temporal and operational patterns
 
-* **Happy hour gap (1–3 PM):** revenue dips to $65.9M at 14:00 (the daily minimum) vs $139M at 17:00 (dinner peak) — a targeted promo in the 1–3 PM post-lunch window could flatten the curve (H4).
-* **Weekend traffic** is lower than weekdays (Sunday is the lowest at 216 orders/store/day vs Wednesday's 238). Family bundles or weekend combos could even this out (H6).
-* **Monthly trend:** revenue is stable at ~$55–73M/month across the 21-month period, with December 2025 dip likely seasonal.
+* **Happy hour gap (1–3 PM):** revenue dips to 5.73% of daily revenue at 14:00 (the daily minimum) vs 12.1% at 17:00 (dinner peak) — absolute Gold amounts are per-line (inflated ×6), shares are valid — a targeted promo in the 1–3 PM post-lunch window could flatten the curve (H4).
+* **Weekend traffic** is lower than weekdays (Saturday is the lowest at 174.5 orders/store/day; Friday 185.9; Sunday 216.3; Thursday 237.8 and Wednesday 237.5 are the highest — weekend −12.7%). Family bundles or weekend combos could even this out (H6).
+* **Monthly trend:** revenue is stable at ~$55–73M/month across the 21-month period (per-line convention; check-level is ~÷6), with December 2025 dip likely seasonal.
 
 ### Pipeline observability
 
@@ -107,14 +107,14 @@ The Gold tables enable insights that were not visible in the raw 85M-row CSVs. B
 
 | # | Hypothesis | Verdict |
 | --- | --- | --- |
-| H1 | Drive Thru doesn't need discounts | ✅ Confirmed — lowest discount rate, highest non-discounted ticket |
-| H2 | Steak Soft Taco canibalized its price | ✅ Confirmed — 73% discount rate, $429K lost |
-| H3 | Cutting discounts didn't cause traffic drop | ✅ Confirmed — traffic held steady as discounts fell 22% → 6% |
-| H4 | Happy hour opportunity 1–3 PM (post-lunch valley) | ✅ Confirmed — revenue dips at 14:00 ($65.9M) vs peak at 17:00 ($139M) |
-| H5 | App discounts disproportionate to volume | ✅ Confirmed — 51% discount on 7K transactions |
+| H1 | Drive Thru doesn't need discounts | ✅ Confirmed — $0 item-level discounts, lowest discount rate among own channels |
+| H2 | Steak Soft Taco canibalized its price | ✅ Confirmed — 45.8% item-discount lines (highest), $233K lost at item level |
+| H3 | Cutting discounts didn't cause traffic drop | ✅ Confirmed — traffic held steady (154–223 orders/store/day) as discounts fell 22% → 6% |
+| H4 | Happy hour opportunity 1–3 PM (post-lunch valley) | ✅ Confirmed — revenue dips at 14:00 (5.73% of daily) vs peak at 17:00 (12.1%) |
+| H5 | App discounts disproportionate to volume | ✅ Confirmed — 51% discount rate on 1,197 orders |
 | H6 | Weekend promos to even out traffic | ⚠️ Evaluate — weekend traffic is lower but requires A/B test |
 | H7 | Small-order discounts don't pay off | ⚠️ Evaluate — 40% of discounts on <$10 orders, needs A/B |
-| H8 | Sides/condiments are giveaways | ⚠️ Evaluate — $5.3M in discounts, needs incremental basket analysis |
+| H8 | Sides/condiments are giveaways | ⚠️ Revisit — only ~$80K in item-level discounts; needs incremental basket analysis |
 
 ## Data quality (DQ)
 
@@ -211,7 +211,7 @@ Records that fail outlier filters (quantity > 50, menu_price > $50) are written 
 
 ## Data dictionary (Gold tables)
 
-All tables are in `workspace.default`. `transactions` = non-Void Silver rows; `orders` = `COUNT(DISTINCT store_id || '-' || check_number)`.
+All tables are in `workspace.default`. `transactions` = non-Void Silver rows; `orders` = `COUNT(DISTINCT store_id || '-' || check_number)` (undercounts ~52K orders — the correct key is store+date+check, since `check_number` is reused across dates). **Metric semantics (audit 2026-10-28):** `total`, `total_discount`, `tax` and `order_voided` are check-level amounts repeated on every line of a check, so all `SUM(total)` / `SUM(total_discount)` figures (revenue, discount_amount) are inflated ~×6.0 / ×5.2; `menu_price`, `quantity` and `item_discount` are line-level. Shares, rates and counts remain valid.
 
 ### `taco_bueno_gold_monthly`
 
@@ -306,13 +306,13 @@ Grain: one row = one unique POS transaction line (store × date × check × item
 | --- | --- | --- |
 | `store_id` | INT | Store identifier |
 | `date` | DATE | Transaction date (cluster key) |
-| `total` | DOUBLE | Line total |
+| `total` | DOUBLE | Check-level total, repeated on every line of the check |
 | `check_number` | STRING | Check/order identifier (not unique across stores) |
 | `begin_time` | TIMESTAMP | Transaction start time |
 | `end_time` | TIMESTAMP | Transaction end time |
-| `total_discount` | DOUBLE | Total discount applied |
-| `order_voided` | DOUBLE | Order voided flag |
-| `tax` | DOUBLE | Tax amount |
+| `total_discount` | DOUBLE | Check-level discount, repeated on every line |
+| `order_voided` | DOUBLE | Check-level voided amount, repeated on every line |
+| `tax` | DOUBLE | Check-level tax, repeated on every line |
 | `quantity` | INT | Units sold |
 | `transaction_type` | STRING | 'Regular Sale', 'Discount', or 'Void' |
 | `menu_item` | STRING | Product name |
@@ -326,7 +326,9 @@ Grain: one row = one unique POS transaction line (store × date × check × item
 
 ## Roadmap
 
-* [ ] Email/webhook notifications when a Job fails
+* [ ] **Fix the Gold tables to check/item-level amounts** (revenue per check, discounts via `SUM(item_discount)` or per-check totals, orders keyed by store+date+check) — current absolute dollars are inflated ~×6; see PROJECT_SUMMARY §8
+* [ ] Email/webhook notifications when a Job fails (the 2026-10-28 weekly run 443911298462218 failed silently)
+* [ ] Consolidate orchestration into a single Job (pause 2 of the 3 redundant jobs) and investigate the failed weekly run
 * [ ] Incremental processing in the Silver layer (vs. full recompute)
 * [ ] Lakeview dashboard on top of the Gold tables
 * [ ] A/B experiments to validate causal hypotheses (H1–H8)
