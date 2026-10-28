@@ -1,0 +1,12 @@
+# Databricks notebook dependencies (run inside Databricks notebooks)
+# These are pre-installed on Databricks Runtime / Serverless compute,
+# listed here for reproducibility and local development reference.
+
+matplotlib>=3.7
+pandas>=2.0
+numpy>=1.24
+
+# The Databricks SDK is pre-installed on Databricks compute.
+# Uncomment for local development:
+# databricks-sdk>=0.20
+# pyspark>=3.4
