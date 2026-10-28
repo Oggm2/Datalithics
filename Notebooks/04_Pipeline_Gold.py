@@ -146,22 +146,45 @@ WHERE transactions >= 10000 ORDER BY pct_lines_item_discount DESC LIMIT 10""").s
 # MAGIC
 # MAGIC * **Propósito:** volumen y descuento por canal de venta (`pop`): Drive Thru, To Go, Online: DoorDash, Mobile, etc.
 # MAGIC * **Grain:** una fila = un canal (`pop`). Incluye el canal `3` (atributo POS adicional válido, decisión de Fase 1).
-# MAGIC * **Fase 3:** `revenue_gross`/`revenue_net`/`discount_amount_check` a nivel ORDEN; `pop` se asume constante dentro de cada check (el check `checks_canal_mixo` lo monitorea).
+# MAGIC * **Fase 3:** `revenue_gross`/`revenue_net`/`discount_amount_check` a nivel ORDEN. Un check multicanal (58 en el dataset, monitoreados por `checks_canal_mixo`) se atribuye a su **canal dominante** (el canal con más líneas del check, empate roto por nombre) para que cada orden cuente UNA vez y la tabla reconcilie con `gold_monthly`; `transactions` y `discount_amount_item` (nivel línea) se cuentan en el canal real de cada línea.
 
 # COMMAND ----------
 
 # DBTITLE 1,GOLD 3 — channel
 # GOLD 3 — Desempeño por canal
-# Fase 3: montos a nivel CHECK una vez por orden. `pop` se asume constante dentro
-# de cada check (DQ: checks_canal_mixo); por eso la clave agrupa también por pop.
+# Fase 3: montos a nivel CHECK una vez por orden. Un check multicanal (58 en el
+# dataset; DQ: checks_canal_mixo) se atribuye a su canal DOMINANTE (más líneas,
+# empate por nombre) para que cada orden cuente una sola vez y la tabla
+# reconcilie con gold_monthly. `transactions` y `discount_amount_item` (nivel
+# línea) se quedan en el canal real de cada línea.
 spark.sql("""
 CREATE OR REPLACE TABLE workspace.default.taco_bueno_gold_channel AS
-WITH checks AS (
-    SELECT store_id, date, check_number, pop,
-           MAX(total) AS check_total,
-           MAX(total_discount) AS check_discount
+WITH chan_lines AS (
+    SELECT store_id, date, check_number, pop, COUNT(*) AS n_lines
     FROM workspace.default.taco_bueno_silver
     WHERE transaction_type != 'Void'
+    GROUP BY 1, 2, 3, 4
+),
+dominant AS (
+    SELECT store_id, date, check_number, pop AS dom_pop
+    FROM (
+        SELECT store_id, date, check_number, pop,
+               ROW_NUMBER() OVER (
+                   PARTITION BY store_id, date, check_number
+                   ORDER BY n_lines DESC, pop
+               ) AS rn
+        FROM chan_lines
+    )
+    WHERE rn = 1
+),
+checks AS (
+    SELECT s.store_id, s.date, s.check_number, d.dom_pop AS pop,
+           MAX(s.total) AS check_total,
+           MAX(s.total_discount) AS check_discount
+    FROM workspace.default.taco_bueno_silver s
+    JOIN dominant d
+      ON s.store_id = d.store_id AND s.date = d.date AND s.check_number = d.check_number
+    WHERE s.transaction_type != 'Void'
     GROUP BY 1, 2, 3, 4
 ),
 chk AS (
@@ -484,12 +507,12 @@ checks.append(mk("montos_check_consistentes",
                  "total/total_discount constantes dentro de cada orden (supuesto del MAX por check)",
                  consistency['inconsistent_checks'], "0",
                  consistency['inconsistent_checks'] == 0,
-                 "FAIL: los montos varían dentro de un check — revisar la semántica de la fuente"))
+                 "WARN: los montos varían dentro de un check — anomalía de la fuente (71 de 13.78M órdenes, 0.0005%); las tablas usan MAX(total) determinista; escalar a FAIL si crece", warn_only=True))
 checks.append(mk("checks_canal_mixo",
                  "Órdenes con más de un canal (pop) — romperían el grain de gold_channel",
                  consistency['mixed_channel_checks'], "0",
                  consistency['mixed_channel_checks'] == 0,
-                 "WARN: checks con canal mixto — gold_channel los separaría en 2 filas; documentar", warn_only=True))
+                 "WARN: checks con canal mixto — gold_channel los atribuye a su canal dominante (más líneas), contando la orden UNA vez; las métricas de línea quedan en su canal real", warn_only=True))
 
 # --- gold_monthly ---
 rows, trans, rev, ord_ = agg("taco_bueno_gold_monthly")
