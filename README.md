@@ -74,6 +74,48 @@ Each run appends one row to `taco_bueno_kpi_snapshot` with its `trigger_cadence`
 * Total discounts $24.14M (2.10% of revenue); discount rate fell from 22.27% (Jan 2025) to ~6-7% (2026)
 * 643 products · 12 channels (To Go and Drive Thru account for ~63% of transactions)
 
+## Key findings and business value
+
+The Gold tables enable insights that were not visible in the raw 85M-row CSVs. Below is a summary of the main findings — full analysis and charts are in `02_EDA` (16 visualizations) and `06_Analisis_Hipotesis` (8 hypotheses with evidence and verdicts).
+
+### Discount strategy effectiveness
+
+* **Discount rate collapsed** from 22.27% (Jan 2025) to ~6–7% (2026), yet **traffic held steady** at ~6,200–6,700 orders per store per day (H3). Cutting discounts did NOT cause a traffic drop — the rec was unnecessary.
+* **Steak Soft Taco** had a 73.29% discount rate — the highest of any high-volume product — with $429,622 in discounts against $2.12M revenue (H2). This product was effectively canibalizing its own price.
+* **Small orders (<$10)** account for 39.8% of all orders but absorb 40.3% of total discount dollars ($1.86M), with an average ticket of just $6.45 (H7). Discounts on tiny orders don't generate incremental basket value.
+* **Sides and condiments** received $5.26M in discounts across 12.5M+ transactions (H8) — these are likely pure giveaways unless they drive combo attach rate.
+
+### Channel insights
+
+* **Drive Thru** (17.9M transactions, $304.5M revenue) operates at just 4.23% discount rate — the lowest of any major channel — with a **higher** non-discounted ticket ($17.11) than discounted ($12.60). It doesn't need promotions (H1).
+* **Mobile app** has 50.91% discount rate but only 7,486 transactions and $178K revenue — the digital strategy needs rethinking (H5).
+* **DoorDash** ($55.4M revenue) and **UberEats** ($18.3M) operate at 0% and 0.08% discount respectively — third-party delivery isn't a discount channel, it's a reach channel.
+* To Go and Drive Thru together account for ~63% of all transactions.
+
+### Temporal and operational patterns
+
+* **Happy hour gap (3–6 PM):** revenue dips relative to lunch and dinner peaks — a targeted promo in this window could flatten the curve (H4).
+* **Weekend traffic** is lower than weekdays (Sunday is the lowest at 216 orders/store/day vs Wednesday's 238). Family bundles or weekend combos could even this out (H6).
+* **Monthly trend:** revenue is stable at ~$55–73M/month across the 21-month period, with December 2025 dip likely seasonal.
+
+### Pipeline observability
+
+* `taco_bueno_kpi_snapshot` accumulates one row per run with global KPIs — comparing runs with `LAG() OVER (ORDER BY run_ts)` reveals drift in source data (if a KPI jumps, something changed upstream).
+* `taco_bueno_dq_results` provides an auditable trail of all 27 DQ checks per run.
+
+### Hypothesis verdicts (H1–H8)
+
+| # | Hypothesis | Verdict |
+| --- | --- | --- |
+| H1 | Drive Thru doesn't need discounts | ✅ Confirmed — lowest discount rate, highest non-discounted ticket |
+| H2 | Steak Soft Taco canibalized its price | ✅ Confirmed — 73% discount rate, $429K lost |
+| H3 | Cutting discounts didn't cause traffic drop | ✅ Confirmed — traffic held steady as discounts fell 22% → 6% |
+| H4 | Happy hour opportunity 3–6 PM | ✅ Confirmed — revenue dip in afternoon window |
+| H5 | App discounts disproportionate to volume | ✅ Confirmed — 51% discount on 7K transactions |
+| H6 | Weekend promos to even out traffic | ⚠️ Evaluate — weekend traffic is lower but requires A/B test |
+| H7 | Small-order discounts don't pay off | ⚠️ Evaluate — 40% of discounts on <$10 orders, needs A/B |
+| H8 | Sides/condiments are giveaways | ⚠️ Evaluate — $5.3M in discounts, needs incremental basket analysis |
+
 ## Data quality (DQ)
 
 * **27 automated checks** per run, all logged in `taco_bueno_dq_results` (layer, rule, observed, expected, status).
